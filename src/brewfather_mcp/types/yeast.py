@@ -12,6 +12,35 @@ class YeastForm(StrEnum):
     LIQUID = "Liquid"
     SLANT = "Slant"
     CULTURE = "Culture"
+    SLURRY = "Slurry"
+
+
+class YeastType(StrEnum):
+    ALE = "Ale"
+    LAGER = "Lager"
+    HYBRID = "Hybrid"
+    WHEAT = "Wheat"
+    WINE = "Wine"
+    CHAMPAGNE = "Champagne"
+    OTHER = "Other"
+
+
+class Flocculation(StrEnum):
+    LOW = "Low"
+    MEDIUM_LOW = "Medium-Low"
+    MEDIUM = "Medium"
+    MEDIUM_HIGH = "Medium-High"
+    HIGH = "High"
+    VERY_HIGH = "Very High"
+
+
+class YeastUnit(StrEnum):
+    PACKAGES = "packages"
+    CELLS = "cells"
+    PKG = "pkg"
+    BILLION_CELLS = "billion cells"
+    ML = "ml"
+    G = "g"
 
 
 class YeastBase(BaseModel):
@@ -19,7 +48,7 @@ class YeastBase(BaseModel):
     Core yeast fields present in all contexts.
     """
     name: str
-    type: str  # "Ale", "Lager", "Wheat", etc.
+    type: YeastType | str  # Use enum but allow string for compatibility
     attenuation: float | None = None # Percentage (may be 0-100 or 0-1?)
 
     model_config = {
@@ -68,13 +97,13 @@ class YeastDetail(Yeast, VersionedModel):
     
     # Physical characteristics
     form: YeastForm | None = None
-    flocculation: str | None = None  # "Low", "Medium", "High"
+    flocculation: Flocculation | str | None = None  # Use enum but allow string for compatibility
     cells_per_pkg: int | None = Field(alias="cellsPerPkg", default=None)
     ferments_all: bool = Field(alias="fermentsAll", default=False)
-    
+
     # Usage and storage
     description: str | None = None
-    unit: str | None = None  # "pkg", "billion cells", "ml"
+    unit: YeastUnit | str | None = None  # Use enum but allow string for compatibility
     amount: float | None = None
     cost_per_amount: float | None = Field(alias="costPerAmount", default=None)
     
@@ -109,7 +138,7 @@ class RecipeYeast(YeastBase):
     laboratory: str = ""
     product_id: str | None = Field(alias="productId", default=None)
     form: YeastForm | None = None
-    unit: str | None = None
+    unit: YeastUnit | str | None = None  # Use enum but allow string for compatibility
     description: str | None = None
     
     # Performance characteristics
@@ -120,7 +149,7 @@ class RecipeYeast(YeastBase):
     max_abv: int | None = Field(alias="maxAbv", default=None)
     
     # Physical characteristics
-    flocculation: str | None = None
+    flocculation: Flocculation | str | None = None  # Use enum but allow string for compatibility
     ferments_all: bool = Field(alias="fermentsAll", default=False)
     
     # Dates

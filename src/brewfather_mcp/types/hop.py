@@ -2,7 +2,7 @@ from typing import List
 from pydantic import BaseModel, Field, RootModel, field_validator
 from enum import StrEnum
 
-from .base import VersionedModel
+from .base import VersionedModel, TimeUnit
 from .inventory import InventoryItem
 import brewfather_mcp.utils as utils
 
@@ -13,6 +13,24 @@ class HopUse(StrEnum):
     AROMA = "Aroma"
     FIRST_WORT = "First Wort"
     HOPSTAND = "Hopstand"
+    MASH = "Mash"
+
+
+class HopForm(StrEnum):
+    PELLET = "Pellet"
+    WHOLE = "Whole"
+    CRYO = "Cryo"
+    CO2_EXTRACT = "CO2Extract"
+    PLUG = "Plug"
+    LEAF = "Leaf"
+    EXTRACT = "Extract"
+    LIQUID = "Liquid"
+
+
+class HopUsage(StrEnum):
+    BITTERING = "Bittering"
+    AROMA = "Aroma"
+    BOTH = "Both"
 
 
 class HopBase(BaseModel):
@@ -20,7 +38,7 @@ class HopBase(BaseModel):
     Core hop fields present in all contexts.
     """
     name: str
-    type: str  # Form type like "Pellet"
+    type: HopForm | str  # Form type - use enum but allow string for compatibility
     alpha: float  # Alpha acid percentage
 
     model_config = {
@@ -56,7 +74,7 @@ class HopDetail(Hop, VersionedModel):
     # Growing and processing info
     origin: str | None = None
     year: int | None = None
-    usage: str | None = None  # "Aroma", "Bittering", "Both"
+    usage: HopUsage | str | None = None  # Use enum but allow string for compatibility
     
     # Documentation
     notes: str = ""
@@ -103,7 +121,7 @@ class RecipeHop(HopBase):
     
     # Dry hop specific fields
     actual_time: int | None = Field(alias="actualTime", default=None)
-    time_unit: str | None = Field(alias="timeUnit", default=None)
+    time_unit: TimeUnit | str | None = Field(alias="timeUnit", default=None)  # Use enum but allow string for compatibility
     day: int | None = None
     
     # Chemical composition (optional in recipes)
@@ -116,7 +134,7 @@ class RecipeHop(HopBase):
     hsi: float | None = None
     
     # Additional info
-    usage: str | None = None
+    usage: HopUsage | str | None = None  # Use enum but allow string for compatibility
     year: int | None = None
     notes: str | None = None
     user_notes: str | None = Field(alias="userNotes", default=None)

@@ -12,6 +12,9 @@ class MiscUse(StrEnum):
     PRIMARY = "Primary"
     SECONDARY = "Secondary"
     BOTTLING = "Bottling"
+    SPARGE = "Sparge"
+    FLAMEOUT = "Flameout"
+    STEEP = "Steep"
 
 
 class MiscType(StrEnum):
@@ -20,6 +23,7 @@ class MiscType(StrEnum):
     OTHER = "Other"
     SPICE = "Spice"
     HERB = "Herb"
+    FLAVOR = "Flavor"
 
 
 class MiscBase(BaseModel):

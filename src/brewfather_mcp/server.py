@@ -13,6 +13,15 @@ from brewfather_mcp.inventory import (
     get_yeast_summary,
     get_miscs_summary,
 )
+from brewfather_mcp.types import (
+    YeastForm
+)
+from brewfather_mcp.types.yeast import YeastType, Flocculation
+from brewfather_mcp.types.recipe import RecipeType
+from brewfather_mcp.types.hop import HopUse, HopForm, HopUsage
+from brewfather_mcp.types.misc import MiscUse, MiscType
+from brewfather_mcp.types.fermentable import FermentableType, FermentableGrainGroup
+from brewfather_mcp.types.base import MashStepType, FermentationStepType
 from brewfather_mcp.formatter import format_recipe_details
 from typing import Optional
 from datetime import datetime
@@ -81,20 +90,21 @@ async def inventory_categories() -> str:
 async def read_fermentables() -> str:
     try:
         params = ListQueryParams()
-        params.inventory_exists = True
         params.limit = 50
         data = await brewfather_client.get_fermentables_list(params)
 
         formatted_response: list[str] = []
         for item in data.root:
-            formatted = f"""Name: {item.name}
+            # Only include items with inventory > 0
+            if item.inventory and float(item.inventory) > 0:
+                formatted = f"""Name: {item.name}
 Type: {item.type}
 Supplier: {item.supplier}
 Quantity: {item.inventory} kg
 Identifier: {item.id}
 """
 
-            formatted_response.append(formatted)
+                formatted_response.append(formatted)
 
         return "---\n".join(formatted_response)
     except Exception:
@@ -159,13 +169,14 @@ async def read_hops() -> str:
 
     try:
         params = ListQueryParams()
-        params.inventory_exists = True
         params.limit = 50
         data = await brewfather_client.get_hops_list(params)
 
         formatted_response: list[str] = []
         for item in data.root:
-            formatted = f"""Identifier: {item.id}
+            # Only include items with inventory > 0
+            if item.inventory and float(item.inventory) > 0:
+                formatted = f"""Identifier: {item.id}
 Alpha Acids (A.A): {item.alpha}
 Quantity: {item.inventory} grams
 Name: {item.name}
@@ -173,7 +184,7 @@ Type: {item.type}
 Use: {item.use}
 """
 
-            formatted_response.append(formatted)
+                formatted_response.append(formatted)
 
         return "---\n".join(formatted_response)
     except Exception:
@@ -237,20 +248,21 @@ async def read_yeasts() -> str:
 
     try:
         params = ListQueryParams()
-        params.inventory_exists = True
         params.limit = 50
         data = await brewfather_client.get_yeasts_list(params)
 
         formatted_response: list[str] = []
         for item in data.root:
-            formatted = f"""Identifier: {item.id}
+            # Only include items with inventory > 0
+            if item.inventory and float(item.inventory) > 0:
+                formatted = f"""Identifier: {item.id}
 Attenuation (%): {item.attenuation}
-Quantity: {item.inventory} packets
+Quantity: {item.inventory} {item.unit}
 Name: {item.name}
 Type: {item.type}
 """
 
-            formatted_response.append(formatted)
+                formatted_response.append(formatted)
 
         return "---\n".join(formatted_response)
     except:
@@ -717,7 +729,9 @@ async def update_batch(
 async def read_recipes_list() -> str:
     logger.info("received request for recipes list")
     try:
-        data = await brewfather_client.get_recipes_list()
+        params = ListQueryParams()
+        params.limit = 100  # Increase limit to get more recipes
+        data = await brewfather_client.get_recipes_list(params)
         formatted_response: list[str] = []
         for item in data.root:
             formatted = f"""ID: {item.id}
@@ -756,19 +770,20 @@ async def read_miscs_list() -> str:
     logger.info("received request for miscellaneous inventory list")
     try:
         params = ListQueryParams()
-        params.inventory_exists = True
         params.limit = 50
         data = await brewfather_client.get_miscs_list(params)
 
         formatted_response: list[str] = []
         for item in data.root:
-            formatted = f"""ID: {item.id}
+            # Only include items with inventory > 0
+            if item.inventory and float(item.inventory) > 0:
+                formatted = f"""ID: {item.id}
 Name: {item.name}
 Type: {item.type or 'N/A'}
 Inventory: {item.inventory} units (actual unit depends on item)
 Notes: {item.notes or 'N/A'}
 """
-            formatted_response.append(formatted)
+                formatted_response.append(formatted)
         return "---\n".join(formatted_response) if formatted_response else "No miscellaneous items found."
     except Exception:
         logger.exception("Error happened while fetching miscellaneous inventory list")
@@ -1024,3 +1039,295 @@ Showing latest {len(recent_readings)} readings:
     except Exception:
         logger.exception("Error getting readings summary")
         raise
+
+
+# Recipe Creation Tools
+@mcp.tool(
+    name="get_recipe_enums",
+    description="Returns valid enum values for recipe creation from defined type system.",
+)
+async def get_recipe_enums() -> str:
+    """Get valid enum values for recipe creation from defined type system"""
+
+    # Format all enum values from our type system
+    recipe_types = "\n".join(f"- {rt.value}" for rt in RecipeType)
+    hop_uses = "\n".join(f"- {hu.value}" for hu in HopUse)
+    hop_forms = "\n".join(f"- {hf.value}" for hf in HopForm)
+    hop_usages = "\n".join(f"- {hu.value}" for hu in HopUsage)
+    yeast_forms = "\n".join(f"- {yf.value}" for yf in YeastForm)
+    yeast_types = "\n".join(f"- {yt.value}" for yt in YeastType)
+    flocculation_types = "\n".join(f"- {ft.value}" for ft in Flocculation)
+    misc_uses = "\n".join(f"- {mu.value}" for mu in MiscUse)
+    misc_types = "\n".join(f"- {mt.value}" for mt in MiscType)
+    fermentable_types = "\n".join(f"- {ft.value}" for ft in FermentableType)
+    fermentable_grain_groups = "\n".join(f"- {fgg.value}" for fgg in FermentableGrainGroup)
+    mash_step_types = "\n".join(f"- {mst.value}" for mst in MashStepType)
+    fermentation_step_types = "\n".join(f"- {fst.value}" for fst in FermentationStepType)
+
+    enums_info = f"""RECIPE ENUM VALUES
+=====================================
+
+These are the valid enum values you can use when creating recipes.
+
+Recipe Types:
+{recipe_types}
+
+Hop Uses:
+{hop_uses}
+
+Hop Forms:
+{hop_forms}
+
+Hop Usage (purpose):
+{hop_usages}
+
+Yeast Forms:
+{yeast_forms}
+
+Yeast Types:
+{yeast_types}
+
+Flocculation Types:
+{flocculation_types}
+
+Misc Uses:
+{misc_uses}
+
+Misc Types:
+{misc_types}
+
+Fermentable Types:
+{fermentable_types}
+
+Fermentable Grain Groups:
+{fermentable_grain_groups}
+
+Mash Step Types:
+{mash_step_types}
+
+Fermentation Step Types:
+{fermentation_step_types}
+"""
+    return enums_info
+
+
+@mcp.tool(
+    name="create_recipe",
+    description="Creates a complete recipe with ingredients and process steps, returning valid Brewfather JSON for import.",
+)
+async def create_recipe(
+    name: str,
+    author: Optional[str] = "MCP Generated",
+    recipe_type: Optional[str] = RecipeType.ALL_GRAIN.value,
+    style_name: Optional[str] = "Custom Recipe",
+    batch_size: Optional[float] = 21.0,
+    boil_time: Optional[int] = 60,
+    fermentables: Optional[list] = None,
+    hops: Optional[list] = None,
+    yeasts: Optional[list] = None,
+    miscs: Optional[list] = None,
+    mash_steps: Optional[list] = None,
+    fermentation_temp: Optional[float] = None,
+) -> str:
+    """
+    Creates a recipe with ingredients and process steps.
+
+    Args:
+        name: Recipe name (required)
+        author: Recipe author (default: "MCP Generated")
+        recipe_type: "All Grain", "Extract", or "Partial Mash" (default: "All Grain")
+        style_name: Beer style name (default: "Custom Recipe")
+        batch_size: Target batch volume in liters (default: 21.0)
+        boil_time: Boil duration in minutes (default: 60)
+        fermentables: List of fermentable dicts with keys: name, amount (kg), color (optional)
+        hops: List of hop dicts with keys: name, amount (g), alpha (%), use, time (min)
+        yeasts: List of yeast dicts with keys: name, amount, form (YeastForm values)
+        miscs: List of misc dicts with keys: name, amount, use, time (optional)
+        mash_steps: List of mash step dicts with keys: stepTemp (°C), stepTime (min), name (optional)
+        fermentation_temp: Primary fermentation temperature in °C (optional)
+
+    Returns:
+        JSON string formatted for Brewfather import
+    """
+    logger.info(f"Creating recipe: {name}")
+
+    try:
+        # Import here to avoid circular imports
+        from brewfather_mcp.types.recipe import RecipeDetail, RecipeStyle
+        from brewfather_mcp.types.fermentable import RecipeFermentable
+        from brewfather_mcp.types.hop import RecipeHop
+        from brewfather_mcp.types.yeast import RecipeYeast
+        from brewfather_mcp.types.misc import RecipeMisc
+        from brewfather_mcp.types.base import MashSchedule, MashStep, FermentationSchedule, FermentationStep
+        import brewfather_mcp.utils as utils
+        import json
+
+        # Validate required fields
+        if not name or not name.strip():
+            raise ValueError("Recipe name is required")
+
+        # Validate recipe type
+        valid_types = [rt.value for rt in RecipeType]
+        if recipe_type not in valid_types:
+            raise ValueError(f"Invalid recipe type '{recipe_type}'. Valid types: {', '.join(valid_types)}")
+
+        # Set defaults for empty lists
+        fermentables = fermentables or []
+        hops = hops or []
+        yeasts = yeasts or []
+        miscs = miscs or []
+        mash_steps = mash_steps or []
+
+        # Generate unique recipe ID (simple approach for now)
+        import uuid
+        recipe_id = str(uuid.uuid4()).replace('-', '')[:22].upper()
+
+        # Create recipe object
+        recipe = RecipeDetail(
+            id=recipe_id,
+            name=name.strip(),
+            author=author.strip() if author else "MCP Generated",
+            type=recipe_type,
+            batch_size=batch_size,
+            boil_time=boil_time,
+            style=RecipeStyle(name=style_name or "Custom Recipe"),
+            fermentables=[],
+            hops=[],
+            yeasts=[],
+            miscs=[],
+            mash=None if not mash_steps else MashSchedule(
+                name="Custom Mash Schedule",
+                steps=[
+                    MashStep(
+                        name=step.get("name", ""),
+                        stepTemp=step["stepTemp"],
+                        stepTime=step["stepTime"],
+                        type="Temperature"
+                    ) for step in mash_steps
+                ]
+            ),
+            fermentation=FermentationSchedule(
+                name="Custom Fermentation Schedule",
+                steps=[
+                    FermentationStep(
+                        stepTemp=fermentation_temp or 20,
+                        stepTime=14,  # Default 14 days primary
+                        type="Primary"
+                    )
+                ] if fermentation_temp else []
+            ) if fermentation_temp else None
+        )
+
+        # Add fermentables
+        for ferm_data in fermentables:
+            if not ferm_data.get("name") or not ferm_data.get("amount"):
+                logger.warning(f"Skipping fermentable with missing name or amount: {ferm_data}")
+                continue
+
+            fermentable = RecipeFermentable(
+                name=ferm_data["name"],
+                type="Grain",  # Default type for fermentables
+                amount=float(ferm_data["amount"]),
+                color=float(ferm_data.get("color", 3.0)) if ferm_data.get("color") else None,
+                id=None  # Let Brewfather assign ID
+            )
+            recipe.fermentables.append(fermentable)
+
+        # Add hops
+        for hop_data in hops:
+            if not all(k in hop_data for k in ["name", "amount", "alpha", "use", "time"]):
+                logger.warning(f"Skipping hop with missing required fields: {hop_data}")
+                continue
+
+            hop = RecipeHop(
+                name=hop_data["name"],
+                type=HopForm.PELLET,  # Default type for hops
+                amount=float(hop_data["amount"]),
+                alpha=float(hop_data["alpha"]),
+                use=hop_data["use"],
+                time=int(hop_data["time"]),
+                id=None  # Let Brewfather assign ID
+            )
+            recipe.hops.append(hop)
+
+        # Add yeasts
+        for yeast_data in yeasts:
+            if not all(k in yeast_data for k in ["name", "amount", "form"]):
+                logger.warning(f"Skipping yeast with missing required fields: {yeast_data}")
+                continue
+
+            yeast = RecipeYeast(
+                name=yeast_data["name"],
+                type=YeastType.ALE,  # Default type for yeast
+                amount=float(yeast_data["amount"]),
+                form=yeast_data["form"],
+                id=None  # Let Brewfather assign ID
+            )
+            recipe.yeasts.append(yeast)
+
+        # Add miscellaneous ingredients
+        for misc_data in miscs:
+            if not all(k in misc_data for k in ["name", "amount", "use"]):
+                logger.warning(f"Skipping misc with missing required fields: {misc_data}")
+                continue
+
+            misc = RecipeMisc(
+                name=misc_data["name"],
+                amount=float(misc_data["amount"]),
+                use=misc_data["use"],
+                time=int(misc_data["time"]) if misc_data.get("time") else None,
+                id=None  # Let Brewfather assign ID
+            )
+            recipe.miscs.append(misc)
+
+        # Convert to JSON
+        recipe_dict = recipe.model_dump(by_alias=True, exclude_none=True)
+
+        # Clean up the JSON for import - remove calculated fields
+        cleanup_fields = [
+            'og', 'fg', 'ibu', 'color', 'abv', 'attenuation',
+            'buGuRatio', 'rbRatio', 'styleConformity',
+            'fermentableIbu', 'extraGravity', 'diastaticPower',
+            'sumDryHopPerLiter', 'avgWeightedHopstandTemp',
+            'yeastToleranceExceededBy', 'manualFg',
+            'hopStandMinutes', 'carbonationStyle'
+        ]
+
+        for field in cleanup_fields:
+            recipe_dict.pop(field, None)
+
+        json_output = json.dumps(recipe_dict, indent=2, ensure_ascii=False)
+
+        logger.info(f"Successfully created recipe '{name}' with {len(recipe.fermentables)} fermentables, {len(recipe.hops)} hops, {len(recipe.yeasts)} yeasts")
+
+        return f"""RECIPE JSON FOR BREWFATHER IMPORT
+====================================
+
+Recipe Name: {name}
+Type: {recipe_type}
+Batch Size: {batch_size}L
+Boil Time: {boil_time} minutes
+
+Ingredients:
+- Fermentables: {len(recipe.fermentables)}
+- Hops: {len(recipe.hops)}
+- Yeasts: {len(recipe.yeasts)}
+- Misc: {len(recipe.miscs)}
+
+IMPORT INSTRUCTIONS:
+1. Copy the JSON below
+2. In Brewfather, go to Recipes → Import → Brewfather JSON
+3. Paste the JSON and import
+
+JSON:
+-----
+{json_output}
+
+Note: Equipment profiles and calculated values (OG, FG, IBU, ABV) will be
+set by Brewfather after import. This recipe contains the essential brewing
+information needed to make the beer.
+"""
+
+    except Exception as e:
+        logger.exception(f"Error creating recipe '{name}'")
+        raise ValueError(f"Failed to create recipe: {str(e)}")

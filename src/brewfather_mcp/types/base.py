@@ -32,6 +32,7 @@ class FgFormula(StrEnum):
 class IbuFormula(StrEnum):
     TINSETH = "tinseth"
     RAGER = "rager"
+    GARETZ = "garetz"
 
 
 class MashStepType(StrEnum):
@@ -42,8 +43,16 @@ class MashStepType(StrEnum):
 class FermentationStepType(StrEnum):
     PRIMARY = "Primary"
     SECONDARY = "Secondary"
+    TERTIARY = "Tertiary"
     CONDITIONING = "Conditioning"
     COLD_CRASH = "Cold Crash"
+    CARBONATION = "Carbonation"
+
+
+class TimeUnit(StrEnum):
+    DAYS = "days"
+    DAY = "day"
+    MINUTES = "min"
 
 
 class MashStep(BaseModel):
@@ -139,18 +148,18 @@ class FermentationSchedule(BaseModel):
 
 class WaterProfile(BaseModel):
     """Water profile with mineral content and pH"""
-    name: str
-    type: str = "source"
-    calcium: float
-    magnesium: float
-    sodium: float
-    chloride: float
-    sulfate: float
-    bicarbonate: float
-    ph: float
-    hardness: float
-    alkalinity: float
-    residual_alkalinity: float = Field(alias="residualAlkalinity")
+    name: str | None = None
+    type: str | None = None
+    calcium: float | None = None
+    magnesium: float | None = None
+    sodium: float | None = None
+    chloride: float | None = None
+    sulfate: float | None = None
+    bicarbonate: float | None = None
+    ph: float | None = None
+    hardness: float | None = None
+    alkalinity: float | None = None
+    residual_alkalinity: float | None = Field(alias="residualAlkalinity", default=None)
 
 class WaterAdjustment(BaseModel):
     """Water adjustment amounts"""

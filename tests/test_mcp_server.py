@@ -331,7 +331,7 @@ class TestBrewfatherMCP:
             result = await read_yeasts()
             assert "Test Yeast" in result
             assert "75" in result
-            assert "2 packets" in result
+            assert "2 pkg" in result
 
     @pytest.mark.asyncio
     async def test_read_yeasts_detail(self, mock_brewfather_client):

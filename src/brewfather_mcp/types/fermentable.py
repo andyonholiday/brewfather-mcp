@@ -1,17 +1,40 @@
 
 from pydantic import BaseModel, RootModel, Field, field_validator
+from enum import StrEnum
 
 from brewfather_mcp import utils
 
 from .base import VersionedModel
 from .inventory import InventoryItem
 
+
+class FermentableType(StrEnum):
+    GRAIN = "Grain"
+    SUGAR = "Sugar"
+    LIQUID_EXTRACT = "Liquid Extract"
+    DRY_EXTRACT = "Dry Extract"
+    ADJUNCT = "Adjunct"
+    OTHER = "Other"
+
+
+class FermentableGrainGroup(StrEnum):
+    BASE = "Base"
+    BASE_6_ROW = "Base (6-Row)"
+    BASE_MARIS_OTTER = "Base (Maris Otter)"
+    BASE_MUNICH = "Base (Munich)"
+    BASE_PILSNER = "Base (Pilsner)"
+    BASE_WHEAT = "Base (Wheat)"
+    BASE_VIENNA = "Base (Vienna)"
+    CRYSTAL_CARAMEL = "Crystal/Caramel"
+    ROASTED = "Roasted"
+    ACIDULATED = "Acidulated"
+
 class FermentableBase(InventoryItem):
     """
     Core fermentable fields present in all contexts.
     """
     name: str
-    type: str
+    type: FermentableType | str  # Use enum but allow string for compatibility
     supplier: str | None = None
     attenuation: float | None = None
 
@@ -24,7 +47,7 @@ class FermentableDetail(FermentableBase, VersionedModel):
     potential: float | None = None
     potential_percentage: float | None = Field(alias="potentialPercentage", default=None)
 
-    grain_category: str | None = Field(alias="grainCategory", default=None)
+    grain_category: FermentableGrainGroup | str | None = Field(alias="grainCategory", default=None)  # Use enum but allow string for compatibility
     origin: str | None = None
     notes: str | None = None
     ibu_per_amount: float | None = Field(alias="ibuPerAmount", default=None)
