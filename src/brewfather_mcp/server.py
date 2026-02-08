@@ -90,21 +90,19 @@ async def inventory_categories() -> str:
 async def read_fermentables() -> str:
     try:
         params = ListQueryParams()
-        params.limit = 50
+        params.inventory_exists = True
         data = await brewfather_client.get_fermentables_list(params)
 
         formatted_response: list[str] = []
         for item in data.root:
-            # Only include items with inventory > 0
-            if item.inventory and float(item.inventory) > 0:
-                formatted = f"""Name: {item.name}
+            formatted = f"""Name: {item.name}
 Type: {item.type}
 Supplier: {item.supplier}
 Quantity: {item.inventory} kg
 Identifier: {item.id}
 """
 
-                formatted_response.append(formatted)
+            formatted_response.append(formatted)
 
         return "---\n".join(formatted_response)
     except Exception:
@@ -169,14 +167,12 @@ async def read_hops() -> str:
 
     try:
         params = ListQueryParams()
-        params.limit = 50
+        params.inventory_exists = True
         data = await brewfather_client.get_hops_list(params)
 
         formatted_response: list[str] = []
         for item in data.root:
-            # Only include items with inventory > 0
-            if item.inventory and float(item.inventory) > 0:
-                formatted = f"""Identifier: {item.id}
+            formatted = f"""Identifier: {item.id}
 Alpha Acids (A.A): {item.alpha}
 Quantity: {item.inventory} grams
 Name: {item.name}
@@ -184,7 +180,7 @@ Type: {item.type}
 Use: {item.use}
 """
 
-                formatted_response.append(formatted)
+            formatted_response.append(formatted)
 
         return "---\n".join(formatted_response)
     except Exception:
@@ -248,21 +244,19 @@ async def read_yeasts() -> str:
 
     try:
         params = ListQueryParams()
-        params.limit = 50
+        params.inventory_exists = True
         data = await brewfather_client.get_yeasts_list(params)
 
         formatted_response: list[str] = []
         for item in data.root:
-            # Only include items with inventory > 0
-            if item.inventory and float(item.inventory) > 0:
-                formatted = f"""Identifier: {item.id}
+            formatted = f"""Identifier: {item.id}
 Attenuation (%): {item.attenuation}
-Quantity: {item.inventory} {item.unit}
+Quantity: {item.inventory}
 Name: {item.name}
 Type: {item.type}
 """
 
-                formatted_response.append(formatted)
+            formatted_response.append(formatted)
 
         return "---\n".join(formatted_response)
     except:
@@ -400,7 +394,6 @@ async def read_batches_list() -> str:
     logger.info("received request for batches list")
     try:
         params = ListQueryParams()
-        params.limit = 50
         data = await brewfather_client.get_batches_list(params)
         formatted_response: list[str] = []
         for item in data.root:
@@ -730,7 +723,6 @@ async def read_recipes_list() -> str:
     logger.info("received request for recipes list")
     try:
         params = ListQueryParams()
-        params.limit = 100  # Increase limit to get more recipes
         data = await brewfather_client.get_recipes_list(params)
         formatted_response: list[str] = []
         for item in data.root:
@@ -770,20 +762,18 @@ async def read_miscs_list() -> str:
     logger.info("received request for miscellaneous inventory list")
     try:
         params = ListQueryParams()
-        params.limit = 50
+        params.inventory_exists = True
         data = await brewfather_client.get_miscs_list(params)
 
         formatted_response: list[str] = []
         for item in data.root:
-            # Only include items with inventory > 0
-            if item.inventory and float(item.inventory) > 0:
-                formatted = f"""ID: {item.id}
+            formatted = f"""ID: {item.id}
 Name: {item.name}
 Type: {item.type or 'N/A'}
 Inventory: {item.inventory} units (actual unit depends on item)
 Notes: {item.notes or 'N/A'}
 """
-                formatted_response.append(formatted)
+            formatted_response.append(formatted)
         return "---\n".join(formatted_response) if formatted_response else "No miscellaneous items found."
     except Exception:
         logger.exception("Error happened while fetching miscellaneous inventory list")
@@ -1113,7 +1103,7 @@ Fermentation Step Types:
 
 @mcp.tool(
     name="create_recipe",
-    description="Creates a complete recipe with ingredients and process steps, returning valid Brewfather JSON for import.",
+    description="Creates a complete recipe with ingredients and process steps in Brewfather.",
 )
 async def create_recipe(
     name: str,
@@ -1130,7 +1120,7 @@ async def create_recipe(
     fermentation_temp: Optional[float] = None,
 ) -> str:
     """
-    Creates a recipe with ingredients and process steps.
+    Creates a recipe in Brewfather via API with ingredients and process steps.
 
     Args:
         name: Recipe name (required)
@@ -1147,7 +1137,7 @@ async def create_recipe(
         fermentation_temp: Primary fermentation temperature in °C (optional)
 
     Returns:
-        JSON string formatted for Brewfather import
+        Success message with created recipe ID
     """
     logger.info(f"Creating recipe: {name}")
 
@@ -1159,8 +1149,6 @@ async def create_recipe(
         from brewfather_mcp.types.yeast import RecipeYeast
         from brewfather_mcp.types.misc import RecipeMisc
         from brewfather_mcp.types.base import MashSchedule, MashStep, FermentationSchedule, FermentationStep
-        import brewfather_mcp.utils as utils
-        import json
 
         # Validate required fields
         if not name or not name.strip():
@@ -1178,13 +1166,9 @@ async def create_recipe(
         miscs = miscs or []
         mash_steps = mash_steps or []
 
-        # Generate unique recipe ID (simple approach for now)
-        import uuid
-        recipe_id = str(uuid.uuid4()).replace('-', '')[:22].upper()
-
         # Create recipe object
         recipe = RecipeDetail(
-            id=recipe_id,
+            id="temp",  # Will be assigned by Brewfather
             name=name.strip(),
             author=author.strip() if author else "MCP Generated",
             type=recipe_type,
@@ -1283,9 +1267,9 @@ async def create_recipe(
         # Convert to JSON
         recipe_dict = recipe.model_dump(by_alias=True, exclude_none=True)
 
-        # Clean up the JSON for import - remove calculated fields
+        # Clean up the JSON for import - remove calculated fields and id
         cleanup_fields = [
-            'og', 'fg', 'ibu', 'color', 'abv', 'attenuation',
+            'id', 'og', 'fg', 'ibu', 'color', 'abv', 'attenuation',
             'buGuRatio', 'rbRatio', 'styleConformity',
             'fermentableIbu', 'extraGravity', 'diastaticPower',
             'sumDryHopPerLiter', 'avgWeightedHopstandTemp',
@@ -1296,36 +1280,26 @@ async def create_recipe(
         for field in cleanup_fields:
             recipe_dict.pop(field, None)
 
-        json_output = json.dumps(recipe_dict, indent=2, ensure_ascii=False)
+        logger.info(f"Creating recipe '{name}' with {len(recipe.fermentables)} fermentables, {len(recipe.hops)} hops, {len(recipe.yeasts)} yeasts")
 
-        logger.info(f"Successfully created recipe '{name}' with {len(recipe.fermentables)} fermentables, {len(recipe.hops)} hops, {len(recipe.yeasts)} yeasts")
+        # Call API to create recipe
+        created_recipe = await brewfather_client.create_recipe(recipe_dict)
 
-        return f"""RECIPE JSON FOR BREWFATHER IMPORT
-====================================
+        return f"""Recipe created successfully!
 
-Recipe Name: {name}
-Type: {recipe_type}
-Batch Size: {batch_size}L
-Boil Time: {boil_time} minutes
+Recipe ID: {created_recipe.id}
+Name: {created_recipe.name}
+Type: {created_recipe.type}
+Batch Size: {created_recipe.batch_size}L
+Boil Time: {created_recipe.boil_time} minutes
 
 Ingredients:
-- Fermentables: {len(recipe.fermentables)}
-- Hops: {len(recipe.hops)}
-- Yeasts: {len(recipe.yeasts)}
-- Misc: {len(recipe.miscs)}
+- Fermentables: {len(created_recipe.fermentables)}
+- Hops: {len(created_recipe.hops)}
+- Yeasts: {len(created_recipe.yeasts)}
+- Misc: {len(created_recipe.miscs)}
 
-IMPORT INSTRUCTIONS:
-1. Copy the JSON below
-2. In Brewfather, go to Recipes → Import → Brewfather JSON
-3. Paste the JSON and import
-
-JSON:
------
-{json_output}
-
-Note: Equipment profiles and calculated values (OG, FG, IBU, ABV) will be
-set by Brewfather after import. This recipe contains the essential brewing
-information needed to make the beer.
+You can now view this recipe in Brewfather or use get_recipe_detail with ID: {created_recipe.id}
 """
 
     except Exception as e:

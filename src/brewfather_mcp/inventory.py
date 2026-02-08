@@ -1,33 +1,33 @@
-from brewfather_mcp.api import BrewfatherClient
-from brewfather_mcp.utils import AnyDictList, empty_if_null, get_in_batches
+import logging
+
+from brewfather_mcp.api import BrewfatherClient, ListQueryParams
+from brewfather_mcp.utils import AnyDictList
+
+logger = logging.getLogger(__name__)
+
 
 async def get_fermentables_summary(
     brewfather_client: BrewfatherClient,
 ) -> AnyDictList:
-    from brewfather_mcp.api import ListQueryParams
-    
+    """Get a summary of fermentable inventory items using only list data.
+
+    Uses paginated list endpoint to fetch all items without requiring
+    individual detail API calls, avoiding rate limit and timeout issues.
+    """
     params = ListQueryParams()
     params.inventory_exists = True
-    params.limit = 50
     fermentables_data = await brewfather_client.get_fermentables_list(params)
 
-    detail_results = await get_in_batches(
-        3,
-        brewfather_client.get_fermentable_detail,
-        fermentables_data,
-    )
+    logger.info(f"Fetched {len(fermentables_data.root)} fermentables from paginated list")
 
     fermentables: AnyDictList = []
-    for f_data, fermentable_data in zip(
-        fermentables_data.root, detail_results, strict=True
-    ):
+    for f_data in fermentables_data.root:
         fermentables.append(
             {
                 "Name": f_data.name,
                 "Type": f_data.type,
-                "Yield": empty_if_null(fermentable_data.friability),
-                "Best Before Date": empty_if_null(fermentable_data.best_before_date),
-                "Inventory Amount": f"{fermentable_data.inventory} kg",
+                "Supplier": f_data.supplier or "N/A",
+                "Inventory Amount": f"{f_data.inventory} kg",
             }
         )
 
@@ -35,25 +35,26 @@ async def get_fermentables_summary(
 
 
 async def get_hops_summary(brewfather_client: BrewfatherClient) -> AnyDictList:
-    from brewfather_mcp.api import ListQueryParams
-    
+    """Get a summary of hop inventory items using only list data.
+
+    Uses paginated list endpoint to fetch all items without requiring
+    individual detail API calls, avoiding rate limit and timeout issues.
+    """
     params = ListQueryParams()
     params.inventory_exists = True
-    params.limit = 50
     hops_data = await brewfather_client.get_hops_list(params)
-    detail_results = await get_in_batches(
-        3, brewfather_client.get_hop_detail, hops_data
-    )
+
+    logger.info(f"Fetched {len(hops_data.root)} hops from paginated list")
 
     hops: AnyDictList = []
-    for h_data, hop_data in zip(hops_data.root, detail_results, strict=True):
+    for h_data in hops_data.root:
         hops.append(
             {
                 "Name": h_data.name,
-                "Year": empty_if_null(hop_data.year),
                 "Alpha Acid": h_data.alpha,
-                "Best Before Date": empty_if_null(hop_data.best_before_date),
-                "Inventory Amount": f"{hop_data.inventory} grams",
+                "Type": h_data.type,
+                "Use": h_data.use or "N/A",
+                "Inventory Amount": f"{h_data.inventory} grams",
             }
         )
 
@@ -63,25 +64,25 @@ async def get_hops_summary(brewfather_client: BrewfatherClient) -> AnyDictList:
 async def get_yeast_summary(
     brewfather_client: BrewfatherClient,
 ) -> AnyDictList:
-    from brewfather_mcp.api import ListQueryParams
-    
+    """Get a summary of yeast inventory items using only list data.
+
+    Uses paginated list endpoint to fetch all items without requiring
+    individual detail API calls, avoiding rate limit and timeout issues.
+    """
     params = ListQueryParams()
     params.inventory_exists = True
-    params.limit = 50
     yeasts_data = await brewfather_client.get_yeasts_list(params)
-    detail_results = await get_in_batches(
-        3, brewfather_client.get_yeast_detail, yeasts_data
-    )
+
+    logger.info(f"Fetched {len(yeasts_data.root)} yeasts from paginated list")
 
     yeasts: AnyDictList = []
-    for y_data, yeast_data in zip(yeasts_data.root, detail_results, strict=True):
+    for y_data in yeasts_data.root:
         yeasts.append(
             {
                 "Name": y_data.name,
-                "Form": yeast_data.form,
+                "Type": y_data.type,
                 "Attenuation": f"{y_data.attenuation}%",
-                "Best Before Date": empty_if_null(yeast_data.best_before_date),
-                "Inventory Amount": f"{yeast_data.inventory} pkg",
+                "Inventory Amount": f"{y_data.inventory} pkg",
             }
         )
 
@@ -91,7 +92,10 @@ async def get_yeast_summary(
 async def get_miscs_summary(
     brewfather_client: BrewfatherClient,
 ) -> AnyDictList:
-    """Get a summary of miscellaneous inventory items.
+    """Get a summary of miscellaneous inventory items using only list data.
+
+    Uses paginated list endpoint to fetch all items without requiring
+    individual detail API calls, avoiding rate limit and timeout issues.
 
     Args:
         brewfather_client: The Brewfather API client instance.
@@ -99,26 +103,20 @@ async def get_miscs_summary(
     Returns:
         A list of dictionaries containing summarized miscellaneous item information.
     """
-    from brewfather_mcp.api import ListQueryParams
-    
     params = ListQueryParams()
     params.inventory_exists = True
-    params.limit = 50
     miscs_data = await brewfather_client.get_miscs_list(params)
-    detail_results = await get_in_batches(
-        3, brewfather_client.get_misc_detail, miscs_data
-    )
+
+    logger.info(f"Fetched {len(miscs_data.root)} misc items from paginated list")
 
     miscs: AnyDictList = []
-    for m_data, misc_data in zip(
-        miscs_data.root, detail_results, strict=True
-    ):
+    for m_data in miscs_data.root:
         miscs.append(
             {
                 "Name": m_data.name,
                 "Type": m_data.type or "N/A",
-                "Notes": empty_if_null(misc_data.notes),
-                "Inventory Amount": f"{misc_data.inventory} units",
+                "Notes": m_data.notes or "N/A",
+                "Inventory Amount": f"{m_data.inventory} units",
             }
         )
 

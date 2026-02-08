@@ -1,7 +1,10 @@
 from enum import StrEnum
+import logging
 import os
 import httpx
 import urllib.parse
+
+logger = logging.getLogger(__name__)
 from .types import (
     FermentableDetail,
     FermentableList,
@@ -35,30 +38,31 @@ class ListQueryParams:
     order_by_direction: OrderByDirection | None = None
 
     def as_query_param_str(self) -> str | None:
-        qs = ""
+        params = []
 
-        if self.inventory_negative:
-            qs += f"inventory_negative={self.inventory_negative}"
+        if self.inventory_negative is not None:
+            params.append(f"inventory_negative={'true' if self.inventory_negative else 'false'}")
 
-        if self.complete:
-            qs += f"complete={self.complete}"
-        if self.inventory_exists:
-            qs += f"inventory_exists={self.inventory_exists}"
+        if self.complete is not None:
+            params.append(f"complete={'true' if self.complete else 'false'}")
+
+        if self.inventory_exists is not None:
+            params.append(f"inventory_exists={'true' if self.inventory_exists else 'false'}")
 
         if self.limit:
-            qs += f"limit={self.limit}"
+            params.append(f"limit={self.limit}")
 
         if self.start_after:
-            qs += f"start_after={urllib.parse.quote_plus(self.start_after)}"
+            params.append(f"start_after={urllib.parse.quote_plus(self.start_after)}")
 
         if self.order_by:
-            qs += f"order_by={urllib.parse.quote_plus(self.order_by)}"
+            params.append(f"order_by={urllib.parse.quote_plus(self.order_by)}")
 
         if self.order_by_direction:
-            qs += f"order_by_direction={self.order_by_direction}"
+            params.append(f"order_by_direction={self.order_by_direction}")
 
-        if qs:
-            return qs
+        if params:
+            return "&".join(params)
         else:
             return None
 
@@ -75,6 +79,7 @@ class BrewfatherClient:
             )
 
         self.auth = httpx.BasicAuth(user_id, api_key)
+        self.max_pages = 10  # Safety limit to prevent infinite loops
 
     async def _make_request(self, url: str) -> str:
         async with httpx.AsyncClient(auth=self.auth) as client:
@@ -94,6 +99,12 @@ class BrewfatherClient:
         async with httpx.AsyncClient(auth=self.auth) as client:
             response = await client.patch(url, json=data)
             response.raise_for_status()
+
+    async def _make_post_request(self, url: str, data: dict) -> str:
+        async with httpx.AsyncClient(auth=self.auth) as client:
+            response = await client.post(url, json=data)
+            response.raise_for_status()
+            return response.text
 
     def _build_url(
         self,
@@ -115,15 +126,71 @@ class BrewfatherClient:
             url += f"?{query_params.as_query_param_str()}"
         return url
 
+    async def _get_paginated_list(
+        self,
+        endpoint: str,
+        model_class,
+        query_params: ListQueryParams | None = None,
+    ):
+        """Fetch all pages of a list endpoint using cursor pagination.
+
+        Args:
+            endpoint: The API endpoint to query
+            model_class: The Pydantic model class to validate responses
+            query_params: Query parameters including filters and limit
+
+        Returns:
+            A model instance with all results from all pages
+        """
+        all_items = []
+        current_params = query_params or ListQueryParams()
+
+        # Set a reasonable limit per page if not specified
+        if not current_params.limit:
+            current_params.limit = 50
+
+        page_count = 0
+        while page_count < self.max_pages:
+            url = self._build_url(endpoint, query_params=current_params)
+            json_response = await self._make_request(url)
+            page_result = model_class.model_validate_json(json_response)
+
+            # Add items from this page
+            all_items.extend(page_result.root)
+
+            # Check if there are more pages
+            # If we got fewer items than the limit, we've reached the end
+            if len(page_result.root) < current_params.limit:
+                break
+
+            # Set start_after to the ID of the last item for next page
+            if page_result.root:
+                current_params.start_after = page_result.root[-1].id
+            else:
+                break
+
+            page_count += 1
+
+        if page_count >= self.max_pages:
+            logger.warning(
+                f"Reached max page limit ({self.max_pages}) for endpoint '{endpoint}'. "
+                f"Total items fetched: {len(all_items)}. There may be more items available."
+            )
+
+        logger.info(f"Fetched {len(all_items)} total items from '{endpoint}' across {page_count + 1} page(s)")
+
+        # Return a new model instance with all collected items
+        return model_class(root=all_items)
+
     # Inventory endpoints
     async def get_fermentables_list(
         self, query_params: ListQueryParams | None = None
     ) -> FermentableList:
-        url = self._build_url(
-            f"inventory/{InventoryCategory.FERMENTABLES}", query_params=query_params
+        return await self._get_paginated_list(
+            f"inventory/{InventoryCategory.FERMENTABLES}",
+            FermentableList,
+            query_params
         )
-        json_response = await self._make_request(url)
-        return FermentableList.model_validate_json(json_response)
 
     async def get_fermentable_detail(self, id: str) -> FermentableDetail:
         url = self._build_url(
@@ -142,9 +209,7 @@ class BrewfatherClient:
     async def get_batches_list(
         self, query_params: ListQueryParams | None = None
     ) -> BatchList:
-        url = self._build_url("batches", query_params=query_params)
-        json_response = await self._make_request(url)
-        return BatchList.model_validate_json(json_response)
+        return await self._get_paginated_list("batches", BatchList, query_params)
 
     async def get_batch_detail(self, id: str) -> BatchDetail:
         url = self._build_url("batches", id=id)
@@ -159,24 +224,27 @@ class BrewfatherClient:
     async def get_recipes_list(
         self, query_params: ListQueryParams | None = None
     ) -> RecipeList:
-        url = self._build_url("recipes", query_params=query_params)
-        json_response = await self._make_request(url)
-        return RecipeList.model_validate_json(json_response)
+        return await self._get_paginated_list("recipes", RecipeList, query_params)
 
     async def get_recipe_detail(self, id: str) -> RecipeDetail:
         url = self._build_url("recipes", id=id)
         json_response = await self._make_request(url)
         return RecipeDetail.model_validate_json(json_response)
 
+    async def create_recipe(self, recipe_data: dict) -> RecipeDetail:
+        url = self._build_url("recipes")
+        json_response = await self._make_post_request(url, recipe_data)
+        return RecipeDetail.model_validate_json(json_response)
+
     # Add similar patterns for other inventory types (hops, yeasts, miscs)...
     async def get_hops_list(
         self, query_params: ListQueryParams | None = None
     ) -> HopList:
-        url = self._build_url(
-            f"inventory/{InventoryCategory.HOPS}", query_params=query_params
+        return await self._get_paginated_list(
+            f"inventory/{InventoryCategory.HOPS}",
+            HopList,
+            query_params
         )
-        json_response = await self._make_request(url)
-        return HopList.model_validate_json(json_response)
     
     async def get_hop_detail(self, id: str) -> HopDetail:
         url = self._build_url(
@@ -194,11 +262,11 @@ class BrewfatherClient:
     async def get_yeasts_list(
         self, query_params: ListQueryParams | None = None
     ) -> YeastList:
-        url = self._build_url(
-            f"inventory/{InventoryCategory.YEASTS}", query_params=query_params
+        return await self._get_paginated_list(
+            f"inventory/{InventoryCategory.YEASTS}",
+            YeastList,
+            query_params
         )
-        json_response = await self._make_request(url)
-        return YeastList.model_validate_json(json_response)
     
     async def get_yeast_detail(self, id: str) -> YeastDetail:
         url = self._build_url(
@@ -216,11 +284,11 @@ class BrewfatherClient:
     async def get_miscs_list(
         self, query_params: ListQueryParams | None = None
     ) -> MiscList:
-        url = self._build_url(
-            f"inventory/{InventoryCategory.MISCS}", query_params=query_params
+        return await self._get_paginated_list(
+            f"inventory/{InventoryCategory.MISCS}",
+            MiscList,
+            query_params
         )
-        json_response = await self._make_request(url)
-        return MiscList.model_validate_json(json_response)
 
     async def get_misc_detail(self, id: str) -> MiscDetail:
         url = self._build_url(

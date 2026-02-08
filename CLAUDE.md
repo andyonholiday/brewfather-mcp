@@ -78,6 +78,12 @@ The HTTP server can be deployed to any cloud platform that supports Python web a
 
 ## Architecture
 
+### Entry Points
+
+- **CLI**: `brewfather-mcp` script (defined in pyproject.toml, installed via uvx or uv)
+- **Local dev**: `src/main.py` or `src/brewfather_mcp/main.py` (both entry points exist)
+- **HTTP server**: `src/http_runner.py` for SSE transport
+
 ### Core Components
 
 **API Client (`src/brewfather_mcp/api.py`)**
@@ -85,6 +91,7 @@ The HTTP server can be deployed to any cloud platform that supports Python web a
 - Uses httpx with basic auth (BREWFATHER_API_USER_ID, BREWFATHER_API_KEY)
 - Implements CRUD operations for all inventory categories and recipes
 - Base URL: `https://api.brewfather.app/v2`
+- Debug mode (`BREWFATHER_MCP_DEBUG=1`) saves API responses to `debug/` directory
 
 **MCP Server (`src/brewfather_mcp/server.py`)**
 - Uses FastMCP framework to expose tools and prompts
@@ -92,14 +99,19 @@ The HTTP server can be deployed to any cloud platform that supports Python web a
 - Includes specialized prompts for beer style suggestions based on inventory
 - Logs to `/tmp/application.log`
 
-**Type Definitions (`src/brewfather_mcp/types.py`)**
-- Pydantic models for all Brewfather API responses
+**Type Definitions (`src/brewfather_mcp/types/`)**
+- Pydantic models organized by domain (fermentable, hop, yeast, misc, batch, recipe, brewtracker)
 - Separate models for list views vs detail views
 - Handles complex nested structures (recipes, water profiles, fermentation schedules)
+- `base.py` contains shared types (MashStepType, FermentationStepType, etc)
 
 **Inventory Utilities (`src/brewfather_mcp/inventory.py`)**
 - Helper functions for creating inventory summaries
 - Used by the `inventory_summary` MCP tool
+
+**Formatter Utilities (`src/brewfather_mcp/formatter.py`)**
+- `format_recipe_details()` - Converts recipe objects to formatted text
+- Used by recipe and batch detail tools
 
 ### Environment Configuration
 

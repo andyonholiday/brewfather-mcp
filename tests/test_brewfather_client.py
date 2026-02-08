@@ -5,7 +5,7 @@ from pathlib import Path
 from respx import MockRouter
 from typing import List, Tuple
 
-from brewfather_mcp.api import BrewfatherClient, BASE_URL
+from brewfather_mcp.api import BrewfatherClient, BASE_URL, ListQueryParams
 from brewfather_mcp.types import (
     Batch,
     BatchDetail,
@@ -555,7 +555,7 @@ class TestMiscellaneous:
     async def test_miscs_data_validation(self, client: BrewfatherClient, respx_mock: MockRouter, filename: str, test_id: str):
         """Test that all misc debug data validates correctly."""
         mock_data = load_debug_json(filename)
-        
+
         if filename == "inventory_miscs.json":
             # Test list endpoint
             respx_mock.get(f"{BASE_URL}/inventory/miscs").mock(
@@ -573,3 +573,218 @@ class TestMiscellaneous:
             result = await client.get_misc_detail(item_id)
             assert isinstance(result, Misc)
             assert result.id == item_id
+
+
+class TestPagination:
+    """Tests for the cursor-based pagination in _get_paginated_list."""
+
+    @pytest.mark.asyncio
+    async def test_single_page_fewer_than_limit(
+        self, client: BrewfatherClient, respx_mock: MockRouter
+    ):
+        """When API returns fewer items than limit, no second page is fetched."""
+        mock_data = [
+            {"_id": f"f{i}", "name": f"Malt {i}", "inventory": 1.0, "type": "Grain"}
+            for i in range(3)
+        ]
+        respx_mock.get(f"{BASE_URL}/inventory/fermentables").mock(
+            return_value=httpx.Response(200, json=mock_data)
+        )
+        result = await client.get_fermentables_list()
+        assert isinstance(result, FermentableList)
+        assert len(result.root) == 3
+        # Only one request should have been made
+        assert len(respx_mock.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_multi_page_pagination(
+        self, client: BrewfatherClient, respx_mock: MockRouter
+    ):
+        """When first page is full (count == limit), a second page is fetched."""
+        # The default limit in _get_paginated_list is 50
+        page_size = 50
+
+        page1_data = [
+            {"_id": f"f{i:03d}", "name": f"Malt {i}", "inventory": 1.0, "type": "Grain"}
+            for i in range(page_size)
+        ]
+        page2_data = [
+            {"_id": f"f{i:03d}", "name": f"Malt {i}", "inventory": 1.0, "type": "Grain"}
+            for i in range(page_size, page_size + 10)
+        ]
+
+        call_count = 0
+
+        def side_effect(request):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return httpx.Response(200, json=page1_data)
+            else:
+                return httpx.Response(200, json=page2_data)
+
+        respx_mock.get(f"{BASE_URL}/inventory/fermentables").mock(side_effect=side_effect)
+
+        result = await client.get_fermentables_list()
+        assert isinstance(result, FermentableList)
+        assert len(result.root) == page_size + 10
+        assert call_count == 2
+
+        # Verify the second request used start_after
+        second_request = respx_mock.calls[1].request
+        assert "start_after" in str(second_request.url)
+        assert f"f{page_size - 1:03d}" in str(second_request.url)
+
+    @pytest.mark.asyncio
+    async def test_three_page_pagination(
+        self, client: BrewfatherClient, respx_mock: MockRouter
+    ):
+        """Verify pagination works across three pages."""
+        page_size = 50
+
+        pages = [
+            [
+                {"_id": f"f{p * page_size + i:03d}", "name": f"Malt {p * page_size + i}", "inventory": 1.0, "type": "Grain"}
+                for i in range(page_size)
+            ]
+            for p in range(2)
+        ]
+        # Third page with fewer items (last page)
+        pages.append([
+            {"_id": f"f{2 * page_size + i:03d}", "name": f"Malt {2 * page_size + i}", "inventory": 1.0, "type": "Grain"}
+            for i in range(5)
+        ])
+
+        call_count = 0
+
+        def side_effect(request):
+            nonlocal call_count
+            page_idx = call_count
+            call_count += 1
+            return httpx.Response(200, json=pages[page_idx])
+
+        respx_mock.get(f"{BASE_URL}/inventory/fermentables").mock(side_effect=side_effect)
+
+        result = await client.get_fermentables_list()
+        assert len(result.root) == 2 * page_size + 5
+        assert call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_pagination_respects_max_pages(
+        self, client: BrewfatherClient, respx_mock: MockRouter
+    ):
+        """When max_pages is reached, pagination stops even if more data exists."""
+        page_size = 50
+
+        # Always return a full page (simulating unlimited data)
+        def side_effect(request):
+            return httpx.Response(200, json=[
+                {"_id": f"f{i}", "name": f"Malt {i}", "inventory": 1.0, "type": "Grain"}
+                for i in range(page_size)
+            ])
+
+        respx_mock.get(f"{BASE_URL}/inventory/fermentables").mock(side_effect=side_effect)
+
+        result = await client.get_fermentables_list()
+        # max_pages is 10, so we get 10 pages * 50 items = 500 items
+        # (but items will have duplicate IDs since mock returns same data - that's OK for this test)
+        assert len(result.root) == page_size * client.max_pages
+        assert len(respx_mock.calls) == client.max_pages
+
+    @pytest.mark.asyncio
+    async def test_pagination_empty_first_page(
+        self, client: BrewfatherClient, respx_mock: MockRouter
+    ):
+        """When first page is empty, no further pages are fetched."""
+        respx_mock.get(f"{BASE_URL}/inventory/fermentables").mock(
+            return_value=httpx.Response(200, json=[])
+        )
+        result = await client.get_fermentables_list()
+        assert len(result.root) == 0
+        assert len(respx_mock.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_pagination_exact_page_boundary(
+        self, client: BrewfatherClient, respx_mock: MockRouter
+    ):
+        """When results exactly fill one page, a second empty page is fetched."""
+        page_size = 50
+        full_page = [
+            {"_id": f"f{i:03d}", "name": f"Malt {i}", "inventory": 1.0, "type": "Grain"}
+            for i in range(page_size)
+        ]
+
+        call_count = 0
+
+        def side_effect(request):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return httpx.Response(200, json=full_page)
+            else:
+                return httpx.Response(200, json=[])
+
+        respx_mock.get(f"{BASE_URL}/inventory/fermentables").mock(side_effect=side_effect)
+
+        result = await client.get_fermentables_list()
+        assert len(result.root) == page_size
+        # Two calls: first returns full page, second returns empty
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_pagination_with_custom_params(
+        self, client: BrewfatherClient, respx_mock: MockRouter
+    ):
+        """Pagination preserves custom query params like inventory_exists."""
+        mock_data = [
+            {"_id": "f1", "name": "Malt", "inventory": 5.0, "type": "Grain"}
+        ]
+        respx_mock.get(f"{BASE_URL}/inventory/fermentables").mock(
+            return_value=httpx.Response(200, json=mock_data)
+        )
+
+        params = ListQueryParams()
+        params.inventory_exists = True
+        result = await client.get_fermentables_list(params)
+
+        assert len(result.root) == 1
+        first_request = respx_mock.calls[0].request
+        assert "inventory_exists=true" in str(first_request.url)
+
+    @pytest.mark.asyncio
+    async def test_pagination_start_after_carries_filters(
+        self, client: BrewfatherClient, respx_mock: MockRouter
+    ):
+        """On subsequent pages, query filters (inventory_exists etc.) are preserved."""
+        page_size = 50
+
+        page1_data = [
+            {"_id": f"h{i:03d}", "name": f"Hop {i}", "inventory": 10.0, "alpha": 5.0, "type": "Pellet"}
+            for i in range(page_size)
+        ]
+        page2_data = [
+            {"_id": f"h{page_size + i:03d}", "name": f"Hop {page_size + i}", "inventory": 10.0, "alpha": 5.0, "type": "Pellet"}
+            for i in range(3)
+        ]
+
+        call_count = 0
+
+        def side_effect(request):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return httpx.Response(200, json=page1_data)
+            else:
+                return httpx.Response(200, json=page2_data)
+
+        respx_mock.get(f"{BASE_URL}/inventory/hops").mock(side_effect=side_effect)
+
+        params = ListQueryParams()
+        params.inventory_exists = True
+        result = await client.get_hops_list(params)
+
+        assert len(result.root) == page_size + 3
+        # Verify second request still has inventory_exists filter
+        second_request = respx_mock.calls[1].request
+        assert "inventory_exists=true" in str(second_request.url)
+        assert "start_after" in str(second_request.url)
