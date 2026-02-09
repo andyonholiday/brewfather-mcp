@@ -231,11 +231,6 @@ class BrewfatherClient:
         json_response = await self._make_request(url)
         return RecipeDetail.model_validate_json(json_response)
 
-    async def create_recipe(self, recipe_data: dict) -> RecipeDetail:
-        url = self._build_url("recipes")
-        json_response = await self._make_post_request(url, recipe_data)
-        return RecipeDetail.model_validate_json(json_response)
-
     # Add similar patterns for other inventory types (hops, yeasts, miscs)...
     async def get_hops_list(
         self, query_params: ListQueryParams | None = None
